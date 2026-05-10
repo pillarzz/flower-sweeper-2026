@@ -99,27 +99,6 @@ configuration_options = {
 		default = 0,
 	},
 	{
-		name = "changeBerrybushes",
-		label = "Sweep Berrybushes",
-		hover = "Allow changing Berrybushes (select details in 'Berrybushes Types'). Choose 'not empty' to avoid cheaty changing empty/barren Berrybush to full one.",
-		options = {
-			{ description = "No", data = 0 },
-			{ description = "Yes, not empty", data = 1 },
-			{ description = "Yes, any", data = 2 },
-		},
-		default = 0,
-	},
-	{
-		name = "changeBerrybushesType",
-		label = "Berrybushes Type",
-		hover = "'Style only' means you only change Berrybush into the Leavy form. 'Style and Type' allows you to change the Juicy Berrybush, too.",
-		options = {
-			{ description = "Style only", data = 0 },
-			{ description = "Style & Type", data = 1 },
-		},
-		default = 0,
-	},
-	{
 		name = "pottedPlantsMod",
 		label = "Sweep Potted Plants (Mod)",
 		hover = "Allow to sweep the mod's potted plants.",

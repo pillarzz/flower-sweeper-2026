@@ -1,5 +1,5 @@
 -- define what prefab are valid to sweep
-local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_banner", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus", "hermitcrab_lightpost", "pirate_flag_pole", "dock_woodposts", "cavein_boulder", "vaultrelic_vase", "vaultrelic_planter" }
+local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_banner", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus", "hermitcrab_lightpost", "pirate_flag_pole", "dock_woodposts", "cavein_boulder", "vaultrelic_vase", "vaultrelic_planter", "berrybush", "berrybush2", "berrybush_juicy", "dug_berrybush", "dug_berrybush2", "dug_berrybush_juicy", "berrybush_waxed", "dug_berrybush_waxed" }
 
 -- Flower variant groups for vase/planter sweeping (indexes into VASE_FLOWER_SWAPS)
 local VASE_FLOWER_GROUPS = {
@@ -125,19 +125,15 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				return oldTestSpellFunction ~= nil and oldTestSpellFunction(doer, target, pos, tool) or false
 			end
 
-			local isModPrefabBerrybush = GetModConfigData("changeBerrybushes") > 0 and (target.prefab == "berrybush" or target.prefab == "berrybush2" or target.prefab == "berrybush_juicy")
 			local isModPrefabTwiggy = GetModConfigData("changeTwiggy") == 1 and (target.prefab == "twiggytree" or target.prefab == "sapling")
 
-			if isModPrefabBerrybush then
-				-- it is a berrybush and not barren or any
-				local isCastOnEmptyPrefab = GetModConfigData("changeBerrybushes") == 1 and target.components.pickable ~= nil and not target.components.pickable:CanBePicked()
-				-- if you wanna change only the style, the cast on juicy is not allowed
-				local juciyNotAllowed = GetModConfigData("changeBerrybushesType") == 0 and target.prefab == "berrybush_juicy"
-
-				return not juciyNotAllowed and not isCastOnEmptyPrefab
-			elseif target.prefab == "vaultrelic_vase" or target.prefab == "vaultrelic_planter" then
+			if target.prefab == "vaultrelic_vase" or target.prefab == "vaultrelic_planter" then
 				-- only allow sweeping if vase has a flower inside
 				return target.components.vase ~= nil and target.components.vase:HasFlower()
+			elseif target.prefab == "berrybush2_waxed" or target.prefab == "berrybush_juicy_waxed"
+				or target.prefab == "dug_berrybush2_waxed" or target.prefab == "dug_berrybush_juicy_waxed" then
+				-- waxed non-berrybush types have no skins, can't sweep
+				return false
 			elseif inPrefabList(validModPrefab, target.prefab) or isModPrefabTwiggy then
 				-- it is a valid mod prefab
 				return true
@@ -159,6 +155,63 @@ AddPrefabPostInit("reskin_tool", function(inst)
 
 				-- remove old tree
 				fromPrefab:Remove()
+
+				return newPrefab
+			end
+
+			local function replaceBerryBush(fromPrefab, toPrefab)
+				local pickable = fromPrefab.components.pickable
+				local cycles_left = pickable and pickable.cycles_left
+				local max_cycles = pickable and pickable.max_cycles
+				local isBarren = pickable and cycles_left == 0
+				local canBePicked = pickable and pickable.canbepicked
+				local isWithered = fromPrefab.components.witherable ~= nil
+					and type(fromPrefab.components.witherable.IsWithered) == "function"
+					and fromPrefab.components.witherable:IsWithered()
+				local regenTimeLeft = nil
+				if pickable and pickable.targettime ~= nil then
+					local now = GLOBAL.GetTime()
+					if now then
+						regenTimeLeft = math.max(0, pickable.targettime - now)
+					end
+				end
+
+				local newPrefab = GLOBAL.SpawnPrefab(toPrefab)
+				local fx_pos_x, fx_pos_y, fx_pos_z = fromPrefab.Transform:GetWorldPosition()
+				newPrefab.Transform:SetPosition(fx_pos_x, fx_pos_y, fx_pos_z)
+				fromPrefab:Remove()
+
+				local newPickable = newPrefab.components.pickable
+				if newPickable then
+					newPickable.max_cycles = max_cycles
+					newPickable.cycles_left = cycles_left
+
+					if isBarren then
+						newPickable:MakeBarren()
+					elseif canBePicked then
+						newPickable.canbepicked = true
+						if newPickable.makefullfn then
+							newPickable.makefullfn(newPrefab)
+						end
+					else
+						newPickable.canbepicked = false
+						if newPickable.makeemptyfn then
+							newPickable.makeemptyfn(newPrefab)
+						end
+						if regenTimeLeft ~= nil then
+							if newPickable.task ~= nil then
+								newPickable.task:Cancel()
+							end
+							newPickable.task = newPrefab:DoTaskInTime(regenTimeLeft, function() newPickable:Regen() end)
+							newPickable.targettime = GLOBAL.GetTime() + regenTimeLeft
+						end
+					end
+
+					if isWithered and newPrefab.components.witherable
+						and type(newPrefab.components.witherable.ForceWither) == "function" then
+						newPrefab.components.witherable:ForceWither()
+					end
+				end
 
 				return newPrefab
 			end
@@ -354,24 +407,184 @@ AddPrefabPostInit("reskin_tool", function(inst)
 					end
 				end
 			elseif targetPrefabName == "berrybush" or targetPrefabName == "berrybush2" or targetPrefabName == "berrybush_juicy" then
-				local nextPrefab = "berrybush"
-				local changeType = GetModConfigData("changeBerrybushesType")
+				local allBerrySkins = {
+					"berrybush_cawnival", "berrybush_mystical", "berrybush_swamp",
+				}
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownedSkins = getOwnedSkins(caster.userid, allBerrySkins)
+				local changeTypes = true
 
-				if target.prefab == "berrybush" then
-					nextPrefab = "berrybush2"
-				elseif target.prefab == "berrybush2" then
-					if changeType == 0 then
-						-- if you only change type, go back to berrybush
-						nextPrefab = "berrybush"
+				-- Build the full cycle: for berrybush, default + owned skins, then optionally other types
+				-- For berrybush2/berrybush_juicy (no skins), only type switching matters
+				if targetPrefabName == "berrybush" then
+					if GetModConfigData("randomSelection") == 1 then
+						local totalOptions = 1 + #ownedSkins + (changeTypes and 2 or 0)
+						local roll = math.random(totalOptions)
+						puffEffect(tool, target, 1.4)
+						if roll == 1 then
+							-- default skin
+							if isSkinned then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							end
+						elseif roll <= 1 + #ownedSkins then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - 1], nil, caster.userid)
+						else
+							-- type switch
+							local typePrefab = roll == 1 + #ownedSkins + 1 and "berrybush2" or "berrybush_juicy"
+							replaceBerryBush(target, typePrefab)
+						end
 					else
-						-- if you rotate through go to juicy
-						nextPrefab = "berrybush_juicy"
-					end
-				elseif target.prefab == "berrybush_juicy" then
-					nextPrefab = "berrybush"
-				end
+						-- Sequential: default → owned skins → [berrybush2 → berrybush_juicy if enabled] → default
+						puffEffect(tool, target, 1.4)
+						if not isSkinned then
+							if #ownedSkins > 0 then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[1], nil, caster.userid)
+							elseif changeTypes then
+								replaceBerryBush(target, "berrybush2")
+							end
+						else
+							local currentIndex = nil
+							for i, s in ipairs(ownedSkins) do
+								if s == target.skinname then
+									currentIndex = i
+									break
+								end
+							end
 
-				replacePrefab(target, nextPrefab, 1.4)
+							if currentIndex ~= nil and currentIndex < #ownedSkins then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[currentIndex + 1], nil, caster.userid)
+							elseif changeTypes then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+								replaceBerryBush(target, "berrybush2")
+							else
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							end
+						end
+					end
+				else
+					-- berrybush2 or berrybush_juicy: no skins, only type switching
+					if changeTypes then
+						local nextType
+						if targetPrefabName == "berrybush2" then
+							nextType = "berrybush_juicy"
+						else
+							nextType = "berrybush"
+						end
+
+						puffEffect(tool, target, 1.4)
+						replaceBerryBush(target, nextType)
+					else
+						puffEffect(tool, target, 1.4)
+					end
+				end
+			elseif targetPrefabName == "dug_berrybush" or targetPrefabName == "dug_berrybush2" or targetPrefabName == "dug_berrybush_juicy" then
+				local allDugSkins = {
+					"dug_berrybush_cawnival", "dug_berrybush_mystical", "dug_berrybush_swamp",
+				}
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownedSkins = getOwnedSkins(caster.userid, allDugSkins)
+				local changeTypes = true
+
+				if targetPrefabName == "dug_berrybush" then
+					if GetModConfigData("randomSelection") == 1 then
+						local totalOptions = 1 + #ownedSkins + (changeTypes and 2 or 0)
+						local roll = math.random(totalOptions)
+						puffEffect(tool, target, 1)
+						if roll == 1 then
+							if isSkinned then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							end
+						elseif roll <= 1 + #ownedSkins then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - 1], nil, caster.userid)
+						else
+							local typePrefab = roll == 1 + #ownedSkins + 1 and "dug_berrybush2" or "dug_berrybush_juicy"
+							replacePrefab(target, typePrefab, 1)
+						end
+					else
+						puffEffect(tool, target, 1)
+						if not isSkinned then
+							if #ownedSkins > 0 then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[1], nil, caster.userid)
+							elseif changeTypes then
+								replacePrefab(target, "dug_berrybush2", 1)
+							end
+						else
+							local currentIndex = nil
+							for i, s in ipairs(ownedSkins) do
+								if s == target.skinname then
+									currentIndex = i
+									break
+								end
+							end
+
+							if currentIndex ~= nil and currentIndex < #ownedSkins then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[currentIndex + 1], nil, caster.userid)
+							elseif changeTypes then
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+								replacePrefab(target, "dug_berrybush2", 1)
+							else
+								GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							end
+						end
+					end
+				else
+					-- dug_berrybush2 or dug_berrybush_juicy: no skins, only type switching
+					if changeTypes then
+						local nextType
+						if targetPrefabName == "dug_berrybush2" then
+							nextType = "dug_berrybush_juicy"
+						else
+							nextType = "dug_berrybush"
+						end
+						replacePrefab(target, nextType, 1)
+					else
+						puffEffect(tool, target, 1)
+					end
+				end
+			elseif targetPrefabName == "berrybush_waxed" or targetPrefabName == "dug_berrybush_waxed" then
+				local isPlanted = targetPrefabName == "berrybush_waxed"
+				local allWaxedSkins
+				if isPlanted then
+					allWaxedSkins = { "berrybush_waxed_cawnival", "berrybush_waxed_mystical", "berrybush_waxed_swamp" }
+				else
+					allWaxedSkins = { "dug_berrybush_waxed_cawnival", "dug_berrybush_waxed_mystical", "dug_berrybush_waxed_swamp" }
+				end
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownedSkins = getOwnedSkins(caster.userid, allWaxedSkins)
+
+				if #ownedSkins == 0 then
+					puffEffect(tool, target, 1.4)
+				elseif GetModConfigData("randomSelection") == 1 then
+					local totalOptions = 1 + #ownedSkins
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1.4)
+					if roll == 1 then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+					else
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - 1], nil, caster.userid)
+					end
+				else
+					puffEffect(tool, target, 1.4)
+					if not isSkinned then
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[1], nil, caster.userid)
+					else
+						local currentIndex = nil
+						for i, s in ipairs(ownedSkins) do
+							if s == target.skinname then
+								currentIndex = i
+								break
+							end
+						end
+
+						if currentIndex ~= nil and currentIndex < #ownedSkins then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[currentIndex + 1], nil, caster.userid)
+						else
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+					end
+				end
 			elseif targetPrefabName == "marbleshrub" then
 				puffEffect(tool, target, 1.8)
 
