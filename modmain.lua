@@ -1,5 +1,23 @@
 -- define what prefab are valid to sweep
-local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_banner", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus", "hermitcrab_lightpost", "pirate_flag_pole", "dock_woodposts", "cavein_boulder" }
+local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_banner", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus", "hermitcrab_lightpost", "pirate_flag_pole", "dock_woodposts", "cavein_boulder", "vaultrelic_vase", "vaultrelic_planter" }
+
+-- Flower variant groups for vase/planter sweeping (indexes into VASE_FLOWER_SWAPS)
+local VASE_FLOWER_GROUPS = {
+	{ 1, 2, 3, 4, 6, 10, 11, 12 }, -- petals (8 variants)
+	{ 5, 7, 8 },                     -- lightbulb (3 variants)
+	{ 13, 14 },                      -- forgetmelots (2 variants)
+}
+
+local function getVaseFlowerGroup(flowerid)
+	for _, group in ipairs(VASE_FLOWER_GROUPS) do
+		for _, id in ipairs(group) do
+			if id == flowerid then
+				return group
+			end
+		end
+	end
+	return nil
+end
 
 -- Variant counts per prefab (from game prefab definitions)
 local VARIANT_COUNT = {
@@ -117,6 +135,9 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				local juciyNotAllowed = GetModConfigData("changeBerrybushesType") == 0 and target.prefab == "berrybush_juicy"
 
 				return not juciyNotAllowed and not isCastOnEmptyPrefab
+			elseif target.prefab == "vaultrelic_vase" or target.prefab == "vaultrelic_planter" then
+				-- only allow sweeping if vase has a flower inside
+				return target.components.vase ~= nil and target.components.vase:HasFlower()
 			elseif inPrefabList(validModPrefab, target.prefab) or isModPrefabTwiggy then
 				-- it is a valid mod prefab
 				return true
@@ -726,6 +747,33 @@ AddPrefabPostInit("reskin_tool", function(inst)
 						target.AnimState:ClearOverrideSymbol("swap_boulder")
 						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
 					end
+				end
+			elseif targetPrefabName == "vaultrelic_vase" or targetPrefabName == "vaultrelic_planter" then
+				local vase = target.components.vase
+				if vase ~= nil and vase.flowerid ~= nil then
+					local group = getVaseFlowerGroup(vase.flowerid)
+					if group ~= nil and #group > 1 then
+						local currentIndex = 1
+						for i, id in ipairs(group) do
+							if id == vase.flowerid then
+								currentIndex = i
+								break
+							end
+						end
+
+						local nextIndex
+						if GetModConfigData("randomSelection") == 1 then
+							nextIndex = math.random(#group)
+						else
+							nextIndex = (currentIndex % #group) + 1
+						end
+
+						local newFlowerid = group[nextIndex]
+						vase.flowerid = newFlowerid
+						local fresh = vase.fresh
+						target.AnimState:OverrideSymbol("swap_flower", "swap_flower", string.format("f%d%s", newFlowerid, fresh and "" or "_wilt"))
+					end
+					puffEffect(tool, target, 1)
 				end
 			elseif targetPrefabName == "reeds" then
 				replacePrefab(target, "grass", 1.4)
