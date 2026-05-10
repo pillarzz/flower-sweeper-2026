@@ -1,5 +1,5 @@
 -- define what prefab are valid to sweep
-local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus" }
+local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_banner", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus", "hermitcrab_lightpost", "pirate_flag_pole", "dock_woodposts", "cavein_boulder" }
 
 -- Variant counts per prefab (from game prefab definitions)
 local VARIANT_COUNT = {
@@ -548,6 +548,185 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				changePottedPlants("rm", 3)
 			elseif targetPrefabName == "pottedrose" then
 				changePottedPlants("pr", 7)
+			elseif targetPrefabName == "carnivaldecor_banner" then
+				local NUM_SHAPES = 3
+				puffEffect(tool, target, 1.4)
+
+				local currentShape = target.shape
+				target.shape = math.random(NUM_SHAPES)
+
+				if GetModConfigData("randomSelection") ~= 1 then
+					if currentShape >= NUM_SHAPES then
+						target.shape = 1
+					else
+						target.shape = currentShape + 1
+					end
+				end
+
+				target.AnimState:PlayAnimation("idle_" .. tostring(target.shape), true)
+			elseif targetPrefabName == "hermitcrab_lightpost" then
+				local CORAL_COLORS = {
+					{ 189/255, 89/255, 80/255 },
+					{ 96/255, 139/255, 189/255 },
+					{ 180/255, 157/255, 78/255 },
+					{ 138/255, 91/255, 160/255 },
+					{ 102/255, 136/255, 95/255 },
+				}
+				local maxColors = #CORAL_COLORS
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownsYule = GLOBAL.TheInventory:CheckClientOwnership(caster.userid, "hermitcrab_lightpost_yule")
+
+				if GetModConfigData("randomSelection") == 1 then
+					local totalOptions = ownsYule and (maxColors + 1) or maxColors
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1.4)
+					if roll <= maxColors then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+						target.colors_id = roll
+						local colors = CORAL_COLORS[roll]
+						target.AnimState:SetSymbolMultColour("coral", colors[1], colors[2], colors[3], 1)
+					else
+						if not isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "hermitcrab_lightpost_yule", nil, caster.userid)
+						end
+					end
+				else
+					puffEffect(tool, target, 1.4)
+					if not isSkinned then
+						if target.colors_id == maxColors and ownsYule then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "hermitcrab_lightpost_yule", nil, caster.userid)
+						else
+							target.colors_id = (target.colors_id % maxColors) + 1
+							local colors = CORAL_COLORS[target.colors_id]
+							target.AnimState:SetSymbolMultColour("coral", colors[1], colors[2], colors[3], 1)
+						end
+					else
+						target.colors_id = 1
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						local colors = CORAL_COLORS[1]
+						target.AnimState:SetSymbolMultColour("coral", colors[1], colors[2], colors[3], 1)
+					end
+				end
+			elseif targetPrefabName == "pirate_flag_pole" then
+				local NUM_FLAGS = 4
+				puffEffect(tool, target, 1.4)
+
+				local currentNum = GLOBAL.tonumber(target.flag_number) or 1
+
+				local newNum
+				if GetModConfigData("randomSelection") == 1 then
+					newNum = math.random(NUM_FLAGS)
+				else
+					newNum = (currentNum % NUM_FLAGS) + 1
+				end
+
+				local flag_number = "0" .. tostring(newNum)
+				target.flag_number = flag_number
+				target.AnimState:OverrideSymbol("flag_01", "pirate_flag_pole", "flag_" .. flag_number)
+			elseif targetPrefabName == "dock_woodposts" then
+				local maxVariants = 3
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local allDockSkins = {
+					"dock_woodposts_carved", "dock_woodposts_carved2", "dock_woodposts_carved3",
+					"dock_woodposts_decorated", "dock_woodposts_decorated2", "dock_woodposts_decorated3",
+					"dock_woodposts_kitchen", "dock_woodposts_kitchen2", "dock_woodposts_kitchen3",
+				}
+				local ownedSkins = getOwnedSkins(caster.userid, allDockSkins)
+
+				if GetModConfigData("randomSelection") == 1 then
+					local totalOptions = maxVariants + #ownedSkins
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1.2)
+					if roll <= maxVariants then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+						target._post_id = tostring(roll)
+						target.AnimState:PlayAnimation("idle" .. target._post_id)
+					else
+						if not isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - maxVariants], nil, caster.userid)
+						else
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - maxVariants], nil, caster.userid)
+						end
+					end
+				else
+					puffEffect(tool, target, 1.2)
+					if not isSkinned then
+						local currentId = GLOBAL.tonumber(target._post_id) or 1
+						if currentId == maxVariants and #ownedSkins > 0 then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[1], nil, caster.userid)
+						else
+							target._post_id = tostring((currentId % maxVariants) + 1)
+							target.AnimState:PlayAnimation("idle" .. target._post_id)
+						end
+					else
+						local currentIndex = nil
+						for i, s in ipairs(ownedSkins) do
+							if s == target.skinname then
+								currentIndex = i
+								break
+							end
+						end
+
+						if currentIndex ~= nil and currentIndex < #ownedSkins then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[currentIndex + 1], nil, caster.userid)
+						else
+							target._post_id = "1"
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							target.AnimState:PlayAnimation("idle1")
+						end
+					end
+				end
+			elseif targetPrefabName == "cavein_boulder" then
+				local NUM_VARIATIONS = 8
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownsKettlebell = GLOBAL.TheInventory:CheckClientOwnership(caster.userid, "cavein_boulder_kettlebell")
+
+				if GetModConfigData("randomSelection") == 1 then
+					local totalOptions = ownsKettlebell and (NUM_VARIATIONS + 1) or NUM_VARIATIONS
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1.4)
+					if roll <= NUM_VARIATIONS then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+						local variation = roll > 1 and roll or nil
+						target.variation = variation
+						if variation ~= nil then
+							target.AnimState:OverrideSymbol("swap_boulder", "swap_cavein_boulder", "swap_boulder" .. tostring(variation))
+						else
+							target.AnimState:ClearOverrideSymbol("swap_boulder")
+						end
+					else
+						if not isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "cavein_boulder_kettlebell", nil, caster.userid)
+						end
+					end
+				else
+					puffEffect(tool, target, 1.4)
+					if not isSkinned then
+						local currentVar = target.variation or 1
+						if currentVar >= NUM_VARIATIONS and ownsKettlebell then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "cavein_boulder_kettlebell", nil, caster.userid)
+						else
+							local nextVar = (currentVar % NUM_VARIATIONS) + 1
+							local variation = nextVar > 1 and nextVar or nil
+							target.variation = variation
+							if variation ~= nil then
+								target.AnimState:OverrideSymbol("swap_boulder", "swap_cavein_boulder", "swap_boulder" .. tostring(variation))
+							else
+								target.AnimState:ClearOverrideSymbol("swap_boulder")
+							end
+						end
+					else
+						target.variation = nil
+						target.AnimState:ClearOverrideSymbol("swap_boulder")
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+					end
+				end
 			elseif targetPrefabName == "reeds" then
 				replacePrefab(target, "grass", 1.4)
 			elseif targetPrefabName == "grass" then
