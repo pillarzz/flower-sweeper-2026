@@ -1,6 +1,16 @@
 -- define what prefab are valid to sweep
 local validModPrefab = { "flower", "flower_evil", "succulent_plant", "succulent_potted", "cave_fern", "pottedfern", "marbleshrub", "deciduoustree", "carnivaldecor_lamp", "carnivaldecor_plant", "carnivaldecor_figure", "carnivaldecor_figure_season2", "singingshell_octave3", "singingshell_octave4", "singingshell_octave5", "cactus", "oasis_cactus" }
 
+-- Variant counts per prefab (from game prefab definitions)
+local VARIANT_COUNT = {
+	flower = 10,
+	flower_evil = 8,
+	cave_fern = 10,
+	pottedfern = 10,
+	succulent_plant = 5,
+	succulent_potted = 5,
+}
+
 -- Potted Plants (DST) 1311366056
 if GetModConfigData("pottedPlantsMod") == 1 then
 	table.insert(validModPrefab, "pottedbluemushroom")
@@ -42,16 +52,21 @@ AddPrefabPostInit("reskin_tool", function(inst)
 			--local fx = GLOBAL.SpawnPrefab("explode_reskin")
 
 			local fx_prefab = "explode_reskin"
-			local skin_fx = GLOBAL.SKIN_FX_PREFAB[tool:GetSkinName()]
-			if skin_fx ~= nil and skin_fx[1] ~= nil then
-				fx_prefab = skin_fx[1]
+			if tool ~= nil then
+				local skin_name = tool:GetSkinName()
+				local skin_fx = skin_name ~= nil and GLOBAL.SKIN_FX_PREFAB[skin_name] or nil
+				if skin_fx ~= nil and skin_fx[1] ~= nil then
+					fx_prefab = skin_fx[1]
+				end
 			end
 
 			local fx = GLOBAL.SpawnPrefab(fx_prefab)
-			fx.Transform:SetScale(scale, scale, scale)
+			if fx ~= nil then
+				fx.Transform:SetScale(scale, scale, scale)
 
-			local fx_pos_x, fx_pos_y, fx_pos_z = target.Transform:GetWorldPosition()
-			fx.Transform:SetPosition(fx_pos_x, fx_pos_y, fx_pos_z)
+				local fx_pos_x, fx_pos_y, fx_pos_z = target.Transform:GetWorldPosition()
+				fx.Transform:SetPosition(fx_pos_x, fx_pos_y, fx_pos_z)
+			end
 		end
 
 		local function inPrefabList(tbl, item)
@@ -61,13 +76,43 @@ AddPrefabPostInit("reskin_tool", function(inst)
 			return false
 		end
 
-		local function can_cast_fn(doer, target, pos)
+		local function nextAnimVariant(currentAnimName, maxVariants)
+			local num = math.floor(string.sub(currentAnimName, 2, 3))
+			if num >= maxVariants then
+				return "f1"
+			end
+			return "f" .. (num + 1)
+		end
+
+		local function setSucculentVariant(target, plantid)
+			if plantid == 1 then
+				target.AnimState:ClearOverrideSymbol("succulent")
+			else
+				target.AnimState:OverrideSymbol("succulent", "succulent_potted", "succulent" .. tostring(plantid))
+			end
+		end
+
+		local function getOwnedSkins(userid, skinList)
+			local owned = {}
+			for _, skinName in ipairs(skinList) do
+				if GLOBAL.TheInventory:CheckClientOwnership(userid, skinName) then
+					table.insert(owned, skinName)
+				end
+			end
+			return owned
+		end
+
+		local function can_cast_fn(doer, target, pos, tool)
+			if target == nil or target.prefab == nil then
+				return oldTestSpellFunction ~= nil and oldTestSpellFunction(doer, target, pos, tool) or false
+			end
+
 			local isModPrefabBerrybush = GetModConfigData("changeBerrybushes") > 0 and (target.prefab == "berrybush" or target.prefab == "berrybush2" or target.prefab == "berrybush_juicy")
 			local isModPrefabTwiggy = GetModConfigData("changeTwiggy") == 1 and (target.prefab == "twiggytree" or target.prefab == "sapling")
 
 			if isModPrefabBerrybush then
 				-- it is a berrybush and not barren or any
-				local isCastOnEmptyPrefab = GetModConfigData("changeBerrybushes") == 1 and not target.components.pickable:CanBePicked()
+				local isCastOnEmptyPrefab = GetModConfigData("changeBerrybushes") == 1 and target.components.pickable ~= nil and not target.components.pickable:CanBePicked()
 				-- if you wanna change only the style, the cast on juicy is not allowed
 				local juciyNotAllowed = GetModConfigData("changeBerrybushesType") == 0 and target.prefab == "berrybush_juicy"
 
@@ -77,11 +122,11 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				return true
 			else
 				-- it is something default
-				return oldTestSpellFunction(doer, target, pos)
+				return oldTestSpellFunction ~= nil and oldTestSpellFunction(doer, target, pos, tool) or false
 			end
 		end
 
-		local function spellCB(tool, target, pos)
+		local function spellCB(tool, target, pos, caster)
 			local function replacePrefab(fromPrefab, toPrefab, size)
 				puffEffect(tool, fromPrefab, size)
 
@@ -125,7 +170,7 @@ AddPrefabPostInit("reskin_tool", function(inst)
 			local targetPrefabName = target ~= nil and target.prefab or ""
 			-- print("targetPrefabName"..targetPrefabName)
 			if targetPrefabName == "flower" then
-				local names = { "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10" }
+				local maxVariants = VARIANT_COUNT.flower
 				local ROSE_NAME = "rose"
 				local ROSE_CHANCE = GetModConfigData("rosePercent")
 
@@ -133,18 +178,15 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				local currentAnimName = target.animname
 
 				if GetModConfigData("randomSelection") == 1 then
-					nextAnimName = math.random() < ROSE_CHANCE and ROSE_NAME or names[math.random(#names)]
+					nextAnimName = math.random() < ROSE_CHANCE and ROSE_NAME or ("f" .. tostring(math.random(maxVariants)))
 				else
 					if currentAnimName == ROSE_NAME then
-						-- start from the beginning
 						target:RemoveTag("thorny")
 						nextAnimName = "f1"
-					elseif currentAnimName == "f10" then
-						-- add the rose as last flower
+					elseif currentAnimName == "f" .. maxVariants then
 						nextAnimName = ROSE_NAME
 					else
-						-- extract the number (string position 2 to 3), increment and add the pre "f"
-						nextAnimName = "f" .. (math.floor(string.sub(currentAnimName, 2, 3) + 1))
+						nextAnimName = nextAnimVariant(currentAnimName, maxVariants)
 					end
 				end
 
@@ -158,76 +200,138 @@ AddPrefabPostInit("reskin_tool", function(inst)
 					target:AddTag("thorny")
 				end
 			elseif targetPrefabName == "flower_evil" then
-				local currentAnimName = target.animname
-				local nextAnimName = "f" .. tostring(math.random(8))
-
-				if GetModConfigData("randomSelection") ~= 1 then
-					if currentAnimName == "f8" then
-						-- start from beginning
-						nextAnimName = "f1"
-					else
-						-- extract the number (string position 2 to 3), increment and add the pre "f"
-						nextAnimName = "f" .. (math.floor(string.sub(currentAnimName, 2, 3) + 1))
-					end
-				end
-
-				puffEffect(tool, target, 1)
-
-				-- change flower skin as in the default function
-				target.animname = nextAnimName
-				target.AnimState:PlayAnimation(target.animname)
-			elseif targetPrefabName == "succulent_plant" or targetPrefabName == "succulent_potted" then
-				local currentAnimName = target.plantid
-
-				-- differ the plant vs the potted version
-				local prefabName = "succulent"
-				local symbolName = "Symbol_1"
-				local symbolPrefix = "Symbol_"
-
-				if target.prefab == "succulent_potted" then
-					prefabName = "succulent_potted"
-					symbolName = "succulent"
-					symbolPrefix = "succulent"
-				end
-
+				local maxVariants = VARIANT_COUNT.flower_evil
+				local nextAnimName
 
 				if GetModConfigData("randomSelection") == 1 then
-					target.plantid = math.random(5)
+					nextAnimName = "f" .. tostring(math.random(maxVariants))
 				else
-					if target.plantid == 5 then
-						-- start from beginning
-						target.plantid = 1
-					else
-						target.plantid = target.plantid + 1
-					end
+					nextAnimName = nextAnimVariant(target.animname, maxVariants)
 				end
 
 				puffEffect(tool, target, 1)
 
-				-- change flower skin as in the default function
-				if target.plantid == 1 then
-					target.AnimState:ClearOverrideSymbol(symbolName)
-				else
-					target.AnimState:OverrideSymbol(symbolName, prefabName, symbolPrefix .. tostring(target.plantid))
-				end
-			elseif targetPrefabName == "cave_fern" or targetPrefabName == "pottedfern" then
-				local currentAnimName = target.animname
-				local nextAnimName = "f" .. tostring(math.random(10))
-
-				if GetModConfigData("randomSelection") ~= 1 then
-					if currentAnimName == "f10" then
-						-- start from beginning
-						nextAnimName = "f1"
-					else
-						-- extract the number (string position 2 to 3), increment and add the pre "f"
-						nextAnimName = "f" .. (math.floor(string.sub(currentAnimName, 2, 3) + 1))
-					end
-				end
-
-				puffEffect(tool, target, 1)
 				-- change flower skin as in the default function
 				target.animname = nextAnimName
 				target.AnimState:PlayAnimation(target.animname)
+			elseif targetPrefabName == "succulent_plant" then
+				local maxVariants = VARIANT_COUNT.succulent_plant
+				if GetModConfigData("randomSelection") == 1 then
+					target.plantid = math.random(maxVariants)
+				else
+					target.plantid = (target.plantid % maxVariants) + 1
+				end
+
+				puffEffect(tool, target, 1)
+
+				if target.plantid == 1 then
+					target.AnimState:ClearOverrideSymbol("Symbol_1")
+				else
+					target.AnimState:OverrideSymbol("Symbol_1", "succulent", "Symbol_" .. tostring(target.plantid))
+				end
+			elseif targetPrefabName == "succulent_potted" then
+				local maxVariants = VARIANT_COUNT.succulent_potted
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local ownsBearclaw = GLOBAL.TheInventory:CheckClientOwnership(caster.userid, "succulent_potted_bearclaw")
+
+				if GetModConfigData("randomSelection") == 1 then
+					local totalOptions = ownsBearclaw and (maxVariants + 1) or maxVariants
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1)
+					if roll <= maxVariants then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+						target.plantid = roll
+						setSucculentVariant(target, roll)
+					else
+						if not isSkinned then
+							target.AnimState:ClearOverrideSymbol("succulent")
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "succulent_potted_bearclaw", nil, caster.userid)
+						end
+					end
+				else
+					-- Sequential: Default 1→...→max → [Bearger Paw if owned] → Default 1
+					puffEffect(tool, target, 1)
+					if not isSkinned then
+						if target.plantid == maxVariants and ownsBearclaw then
+							target.AnimState:ClearOverrideSymbol("succulent")
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, "succulent_potted_bearclaw", nil, caster.userid)
+						else
+							target.plantid = (target.plantid % maxVariants) + 1
+							setSucculentVariant(target, target.plantid)
+						end
+					else
+						target.plantid = 1
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						target.AnimState:ClearOverrideSymbol("succulent")
+					end
+				end
+			elseif targetPrefabName == "cave_fern" then
+				local maxVariants = VARIANT_COUNT.cave_fern
+				local nextAnimName
+				if GetModConfigData("randomSelection") == 1 then
+					nextAnimName = "f" .. tostring(math.random(maxVariants))
+				else
+					nextAnimName = nextAnimVariant(target.animname, maxVariants)
+				end
+
+				puffEffect(tool, target, 1)
+				target.animname = nextAnimName
+				target.AnimState:PlayAnimation(nextAnimName)
+			elseif targetPrefabName == "pottedfern" then
+				local maxVariants = VARIANT_COUNT.pottedfern
+				local isSkinned = target:GetSkinBuild() ~= nil
+				local allFernSkins = {
+					"pottedfern_cotl", "pottedfern_cotl2", "pottedfern_cotl3",
+					"pottedfern_rose", "pottedfern_rose2", "pottedfern_rose3"
+				}
+				local ownedSkins = getOwnedSkins(caster.userid, allFernSkins)
+
+				if GetModConfigData("randomSelection") == 1 then
+					local totalOptions = maxVariants + #ownedSkins
+					local roll = math.random(totalOptions)
+					puffEffect(tool, target, 1)
+					if roll <= maxVariants then
+						if isSkinned then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+						end
+						target.animname = "f" .. tostring(roll)
+						target.AnimState:PlayAnimation(target.animname)
+					else
+						GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[roll - maxVariants], nil, caster.userid)
+						target.AnimState:PlayAnimation("c")
+					end
+				else
+					-- Sequential: f1→...→fN → [owned skins] → f1
+					puffEffect(tool, target, 1)
+					if not isSkinned then
+						if target.animname == "f" .. maxVariants and #ownedSkins > 0 then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[1], nil, caster.userid)
+							target.AnimState:PlayAnimation("c")
+						else
+							target.animname = nextAnimVariant(target.animname, maxVariants)
+							target.AnimState:PlayAnimation(target.animname)
+						end
+					else
+						local currentIndex = nil
+						for i, s in ipairs(ownedSkins) do
+							if s == target.skinname then
+								currentIndex = i
+								break
+							end
+						end
+
+						if currentIndex ~= nil and currentIndex < #ownedSkins then
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, ownedSkins[currentIndex + 1], nil, caster.userid)
+							target.AnimState:PlayAnimation("c")
+						else
+							target.animname = "f1"
+							GLOBAL.TheSim:ReskinEntity(target.GUID, target.skinname, nil, nil, caster.userid)
+							target.AnimState:PlayAnimation("f1")
+						end
+					end
+				end
 			elseif targetPrefabName == "berrybush" or targetPrefabName == "berrybush2" or targetPrefabName == "berrybush_juicy" then
 				local nextPrefab = "berrybush"
 				local changeType = GetModConfigData("changeBerrybushesType")
@@ -438,8 +542,6 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				changePottedPlants("ef", 8)
 			elseif targetPrefabName == "pottedflower" then
 				changePottedPlants("pf", 9)
-			elseif targetPrefabName == "pottedflower" then
-				changePottedPlants("pf", 9)
 			elseif targetPrefabName == "pottedgreenmushroom" then
 				changePottedPlants("gm", 3)
 			elseif targetPrefabName == "pottedredmushroom" then
@@ -460,7 +562,9 @@ AddPrefabPostInit("reskin_tool", function(inst)
 				replacePrefab(target, "sapling", 1.8)
 			else
 				-- do default stuff
-				oldSpellFunction(tool, target, pos)
+				if oldSpellFunction ~= nil then
+					oldSpellFunction(tool, target, pos, caster)
+				end
 			end
 		end
 
